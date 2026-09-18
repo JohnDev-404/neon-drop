@@ -21,10 +21,10 @@ FPS: Final = 60
 
 COLS: Final = 10
 VISIBLE_ROWS: Final = 20
-HIDDEN_ROWS: Final = 20
+HIDDEN_ROWS: Final = 4
 TOTAL_ROWS: Final = VISIBLE_ROWS + HIDDEN_ROWS
 
-CELL_SIZE: Final = 32
+CELL_SIZE: Final = 36
 
 BOARD_WIDTH: Final = COLS * CELL_SIZE
 BOARD_HEIGHT: Final = VISIBLE_ROWS * CELL_SIZE
@@ -47,3 +47,10 @@ PIECE_COLORS: Final = {
     "T": (200, 80, 255),
     "Z": (255, 60, 90),
 }
+
+# --- Layout ---------------------------------------------------------------
+
+BOARD_X: Final = 40
+BOARD_Y: Final = 60
+HUD_X: Final = BOARD_X + BOARD_WIDTH + 60
+HUD_Y: Final = BOARD_Y
