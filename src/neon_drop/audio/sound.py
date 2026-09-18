@@ -91,39 +91,39 @@ class SoundBank:
     def _build(self) -> None:
         # Move: short, dry, low volume.
         move = _square(220, 0.03) * _envelope(int(0.03 * SAMPLE_RATE), 0.001, 8.0)
-        self._sounds["move"] = _to_sound(move, volume=0.10)
+        self._sounds["move"] = _to_sound(move, volume=0.35)
 
         # Rotate: brighter, crisper.
         rot = _square(440, 0.04) * _envelope(int(0.04 * SAMPLE_RATE), 0.001, 6.0)
-        self._sounds["rotate"] = _to_sound(rot, volume=0.12)
+        self._sounds["rotate"] = _to_sound(rot, volume=0.40)
 
         # Lock: low thud with a slight saw.
         lock = _saw(110, 0.10) * _envelope(int(0.10 * SAMPLE_RATE), 0.002, 12.0)
-        self._sounds["lock"] = _to_sound(lock, volume=0.18)
+        self._sounds["lock"] = _to_sound(lock, volume=0.55)
 
         # Hard drop: short downward sweep.
         hd = _sweep(320, 80, 0.10, "saw") * _envelope(
             int(0.10 * SAMPLE_RATE), 0.001, 14.0
         )
-        self._sounds["hard_drop"] = _to_sound(hd, volume=0.22)
+        self._sounds["hard_drop"] = _to_sound(hd, volume=0.60)
 
         # Hold: brief two-tone chime.
         hold1 = _sine(660, 0.05) * _envelope(int(0.05 * SAMPLE_RATE), 0.002, 8.0)
         hold2 = _sine(880, 0.05) * _envelope(int(0.05 * SAMPLE_RATE), 0.002, 8.0)
         hold = np.concatenate([hold1, hold2])
-        self._sounds["hold"] = _to_sound(hold, volume=0.15)
+        self._sounds["hold"] = _to_sound(hold, volume=0.45)
 
         # Clear: rising sweep.
         clr = _sweep(300, 900, 0.22, "saw") * _envelope(
             int(0.22 * SAMPLE_RATE), 0.003, 6.0
         )
-        self._sounds["clear"] = _to_sound(clr, volume=0.25)
+        self._sounds["clear"] = _to_sound(clr, volume=0.65)
 
         # Tetris: bigger, deeper, longer.
         tet = _sweep(200, 1200, 0.40, "saw") * _envelope(
             int(0.40 * SAMPLE_RATE), 0.004, 4.0
         )
-        self._sounds["tetris"] = _to_sound(tet, volume=0.28)
+        self._sounds["tetris"] = _to_sound(tet, volume=0.70)
 
         # T-spin: sparkle — a brief upward arpeggio.
         notes = [523, 659, 784, 1047]  # C5, E5, G5, C6
@@ -131,7 +131,7 @@ class SoundBank:
         for f in notes:
             seg = _sine(f, 0.06) * _envelope(int(0.06 * SAMPLE_RATE), 0.003, 6.0)
             parts.append(seg)
-        self._sounds["tspin"] = _to_sound(np.concatenate(parts), volume=0.22)
+        self._sounds["tspin"] = _to_sound(np.concatenate(parts), volume=0.55)
 
         # Level up: rising three-note fanfare.
         fanfare = [392, 523, 659]  # G4, C5, E5
@@ -139,7 +139,7 @@ class SoundBank:
         for f in fanfare:
             seg = _square(f, 0.10) * _envelope(int(0.10 * SAMPLE_RATE), 0.004, 5.0)
             parts.append(seg)
-        self._sounds["level_up"] = _to_sound(np.concatenate(parts), volume=0.20)
+        self._sounds["level_up"] = _to_sound(np.concatenate(parts), volume=0.55)
 
         # Game over: descending minor arpeggio.
         over_notes = [523, 440, 349, 262]  # C5, A4, F4, C4
@@ -147,7 +147,7 @@ class SoundBank:
         for f in over_notes:
             seg = _saw(f, 0.14) * _envelope(int(0.14 * SAMPLE_RATE), 0.005, 3.0)
             parts.append(seg)
-        self._sounds["game_over"] = _to_sound(np.concatenate(parts), volume=0.25)
+        self._sounds["game_over"] = _to_sound(np.concatenate(parts), volume=0.60)
 
         # Ambient pad: three harmonically-related sines. 8 s at 44100 Hz
         # = 352 800 samples = exactly 440 / 660 / 880 cycles for the
@@ -157,7 +157,7 @@ class SoundBank:
             + _sine(82.5, 8.0) * 0.3
             + _sine(110.0, 8.0) * 0.2
         )
-        self._sounds["ambient"] = _to_sound(ambient, volume=0.06)
+        self._sounds["ambient"] = _to_sound(ambient, volume=0.20)
 
     def play(self, name: str) -> None:
         if not self.enabled or not self.available:
