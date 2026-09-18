@@ -47,12 +47,13 @@ def _to_sound(wave: np.ndarray, volume: float = 0.3) -> pygame.mixer.Sound:
     """Convert a float array in [-1, 1] to a pygame Sound."""
     clipped = np.clip(wave * volume, -1.0, 1.0)
     ints = (clipped * 32767).astype(np.int16)
-    # Stereo: duplicate to both channels.
     stereo = np.column_stack([ints, ints])
     return pygame.sndarray.make_sound(np.ascontiguousarray(stereo))
 
 
-def _sweep(f_start: float, f_end: float, duration: float, waveform: str = "sine") -> np.ndarray:
+def _sweep(
+    f_start: float, f_end: float, duration: float, waveform: str = "sine"
+) -> np.ndarray:
     """A frequency sweep from f_start to f_end over `duration`."""
     n = int(duration * SAMPLE_RATE)
     freqs = np.linspace(f_start, f_end, n)
@@ -75,14 +76,14 @@ class SoundBank:
         self.available = pygame.mixer.get_init() is not None
         self._sounds: dict[str, pygame.mixer.Sound] = {}
         if not self.available:
-            # No audio device (e.g. WSL, or a browser without WebAudio).
-            # Play calls become no-ops; the game runs fine without sound.
+            # No audio device (e.g. WSL, containers, browsers without
+            # WebAudio). Play calls become no-ops.
             self.enabled = False
             return
         try:
             self._build()
-        except (pygame.error, ValueError):
-            # If synthesis fails for any reason, degrade silently.
+        except (pygame.error, ValueError) as exc:
+            print(f"[audio] SoundBank synthesis failed: {exc}")
             self.available = False
             self.enabled = False
             self._sounds = {}
@@ -101,7 +102,9 @@ class SoundBank:
         self._sounds["lock"] = _to_sound(lock, volume=0.18)
 
         # Hard drop: short downward sweep.
-        hd = _sweep(320, 80, 0.10, "saw") * _envelope(int(0.10 * SAMPLE_RATE), 0.001, 14.0)
+        hd = _sweep(320, 80, 0.10, "saw") * _envelope(
+            int(0.10 * SAMPLE_RATE), 0.001, 14.0
+        )
         self._sounds["hard_drop"] = _to_sound(hd, volume=0.22)
 
         # Hold: brief two-tone chime.
@@ -110,12 +113,16 @@ class SoundBank:
         hold = np.concatenate([hold1, hold2])
         self._sounds["hold"] = _to_sound(hold, volume=0.15)
 
-        # Clear: rising sweep, sounds like a "whoosh of success."
-        clr = _sweep(300, 900, 0.22, "saw") * _envelope(int(0.22 * SAMPLE_RATE), 0.003, 6.0)
+        # Clear: rising sweep.
+        clr = _sweep(300, 900, 0.22, "saw") * _envelope(
+            int(0.22 * SAMPLE_RATE), 0.003, 6.0
+        )
         self._sounds["clear"] = _to_sound(clr, volume=0.25)
 
         # Tetris: bigger, deeper, longer.
-        tet = _sweep(200, 1200, 0.40, "saw") * _envelope(int(0.40 * SAMPLE_RATE), 0.004, 4.0)
+        tet = _sweep(200, 1200, 0.40, "saw") * _envelope(
+            int(0.40 * SAMPLE_RATE), 0.004, 4.0
+        )
         self._sounds["tetris"] = _to_sound(tet, volume=0.28)
 
         # T-spin: sparkle — a brief upward arpeggio.
@@ -124,8 +131,7 @@ class SoundBank:
         for f in notes:
             seg = _sine(f, 0.06) * _envelope(int(0.06 * SAMPLE_RATE), 0.003, 6.0)
             parts.append(seg)
-        tspin = np.concatenate(parts)
-        self._sounds["tspin"] = _to_sound(tspin, volume=0.22)
+        self._sounds["tspin"] = _to_sound(np.concatenate(parts), volume=0.22)
 
         # Level up: rising three-note fanfare.
         fanfare = [392, 523, 659]  # G4, C5, E5
@@ -133,8 +139,7 @@ class SoundBank:
         for f in fanfare:
             seg = _square(f, 0.10) * _envelope(int(0.10 * SAMPLE_RATE), 0.004, 5.0)
             parts.append(seg)
-        level = np.concatenate(parts)
-        self._sounds["level_up"] = _to_sound(level, volume=0.20)
+        self._sounds["level_up"] = _to_sound(np.concatenate(parts), volume=0.20)
 
         # Game over: descending minor arpeggio.
         over_notes = [523, 440, 349, 262]  # C5, A4, F4, C4
@@ -142,8 +147,17 @@ class SoundBank:
         for f in over_notes:
             seg = _saw(f, 0.14) * _envelope(int(0.14 * SAMPLE_RATE), 0.005, 3.0)
             parts.append(seg)
-        over = np.concatenate(parts)
-        self._sounds["game_over"] = _to_sound(over, volume=0.25)
+        self._sounds["game_over"] = _to_sound(np.concatenate(parts), volume=0.25)
+
+        # Ambient pad: three harmonically-related sines. 8 s at 44100 Hz
+        # = 352 800 samples = exactly 440 / 660 / 880 cycles for the
+        # three frequencies, so the loop point is sample-perfect.
+        ambient = (
+            _sine(55.0, 8.0) * 0.5
+            + _sine(82.5, 8.0) * 0.3
+            + _sine(110.0, 8.0) * 0.2
+        )
+        self._sounds["ambient"] = _to_sound(ambient, volume=0.06)
 
     def play(self, name: str) -> None:
         if not self.enabled or not self.available:
@@ -152,7 +166,20 @@ class SoundBank:
         if snd is not None:
             snd.play()
 
+    def start_ambient(self) -> None:
+        """Begin the looping ambient pad. Safe to call once at boot."""
+        if not self.available or not self.enabled:
+            return
+        snd = self._sounds.get("ambient")
+        if snd is not None:
+            snd.play(loops=-1)
+
     def toggle(self) -> None:
         if not self.available:
             return
         self.enabled = not self.enabled
+        # Pause/resume the whole mixer so ambient and SFX silence together.
+        if self.enabled:
+            pygame.mixer.unpause()
+        else:
+            pygame.mixer.pause()
