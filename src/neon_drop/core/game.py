@@ -1,4 +1,4 @@
-"""Game state machine: board + bag + piece + gravity + scoring."""
+"""Game state machine: board + bag + piece + gravity + scoring + hold."""
 
 from __future__ import annotations
 
@@ -65,6 +65,8 @@ class Game:
     state: GameState = GameState.PLAYING
     current: Piece | None = None
     next_queue: list[str] = field(default_factory=list)
+    held_kind: str | None = None
+    hold_used_this_piece: bool = False
 
     gravity_timer: float = 0.0
     gravity_interval: float = BASE_GRAVITY
@@ -120,6 +122,7 @@ class Game:
         self.lowest_y = piece.y
         self.last_action_was_rotation = False
         self.last_kick_index = 0
+        self.hold_used_this_piece = False
 
     # --- movement -------------------------------------------------------
 
@@ -188,6 +191,43 @@ class Game:
         self.events.append(HardDropEvent(distance, cells, kind))
         self._lock_piece()
         return distance
+
+    def hold(self) -> bool:
+        """Swap the current piece with the held one.
+
+        The first hold stashes the current piece and spawns the next
+        from the queue. Subsequent holds swap the current piece with
+        the held one — but only once per piece, matching the modern
+        guideline rule.
+        """
+        if not self._can_act():
+            return False
+        if self.hold_used_this_piece:
+            return False
+
+        current_kind = self.current.kind
+        if self.held_kind is None:
+            # Nothing held yet — stash the current piece and spawn next.
+            self.held_kind = current_kind
+            self.current = None
+            self._spawn_next()
+        else:
+            # Swap.
+            swapped = self.held_kind
+            self.held_kind = current_kind
+            piece = spawn(swapped)
+            if not self.board.is_valid(piece.cells()):
+                # Can't swap into an occupied spawn — revert.
+                self.held_kind = swapped
+                return False
+            self.current = piece
+            self._reset_lock_timer()
+            self.lowest_y = piece.y
+            self.last_action_was_rotation = False
+            self.last_kick_index = 0
+
+        self.hold_used_this_piece = True
+        return True
 
     # --- locking and clearing -------------------------------------------
 
@@ -311,6 +351,8 @@ class Game:
         self.board.reset()
         self.current = None
         self.next_queue = []
+        self.held_kind = None
+        self.hold_used_this_piece = False
         self.gravity_timer = 0.0
         self.lock_timer = LOCK_DELAY_SECONDS
         self.lock_resets = 0

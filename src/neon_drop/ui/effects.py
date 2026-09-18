@@ -119,3 +119,10 @@ class ScreenShake:
             int(random.uniform(-mag, mag)),
             int(random.uniform(-mag, mag)),
         )
+
+    def reset(self) -> None:
+        self.intensity = 0.0
+        self.duration = 0.0
+
+    def clear(self) -> None:
+        self.particles = []

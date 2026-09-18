@@ -39,7 +39,72 @@ def draw_hud(surface: pygame.Surface, game: Game, fonts: Fonts) -> None:
     y = _draw_status(surface, game, x, y, fonts)
 
     y += 20
+    y = _draw_hold(surface, game, x, y, fonts)
+    y += 12
     _draw_next_queue(surface, game, x, y, fonts)
+
+
+def _draw_hold(
+    surface: pygame.Surface,
+    game: Game,
+    x: int,
+    y: int,
+    fonts: Fonts,
+) -> int:
+    """Draw the held piece in a panel, dimmed if the hold is used."""
+    label = theme.render_neon(fonts.label, "HOLD", theme.ACCENT, glow=theme.ACCENT, glow_alpha=80)
+    surface.blit(label, (x, y))
+    y += 34
+
+    panel_size = _CELL * 3
+    panel = pygame.Rect(x, y, panel_size, panel_size)
+    pygame.draw.rect(surface, theme.FIELD_BG, panel)
+    pygame.draw.rect(surface, theme.GRID, panel, width=1)
+
+    if game.held_kind is not None:
+        _draw_piece_in_box(
+            surface,
+            game.held_kind,
+            panel,
+            dimmed=game.hold_used_this_piece,
+        )
+
+    return y + panel_size
+
+
+def _draw_piece_in_box(
+    surface: pygame.Surface,
+    kind: str,
+    panel: pygame.Rect,
+    *,
+    dimmed: bool = False,
+) -> None:
+    """Center a piece at rotation 0 inside a bounding panel."""
+    state = SHAPES[kind][0]
+    min_x = min(cx for cx, _ in state)
+    max_x = max(cx for cx, _ in state)
+    min_y = min(cy for _, cy in state)
+    max_y = max(cy for _, cy in state)
+    span_x = max_x - min_x + 1
+    span_y = max_y - min_y + 1
+    cell = _CELL - 4
+    offset_x = panel.x + (panel.width - span_x * cell) // 2
+    offset_y = panel.y + (panel.height - span_y * cell) // 2
+
+    for cx, cy in state:
+        rect = pygame.Rect(
+            offset_x + (cx - min_x) * cell,
+            offset_y + (cy - min_y) * cell,
+            cell,
+            cell,
+        )
+        if dimmed:
+            r, g, b = theme.cell_color(kind)
+            dim = (r // 3, g // 3, b // 3)
+            pygame.draw.rect(surface, dim, rect)
+            pygame.draw.rect(surface, theme.GRID, rect, width=1)
+        else:
+            draw_cell(surface, rect, kind, glow=False)
 
 
 def _draw_stat(

@@ -228,3 +228,51 @@ def test_tspin_requires_last_rotation() -> None:
     # No T-spin detected — last action was a hard drop, not a rotation.
     assert game.last_clear is not None
     assert game.last_clear.clear_type in (ClearType.SINGLE, ClearType.NONE)
+
+
+def test_first_hold_stashes_piece_and_spawns_next() -> None:
+    game = Game(rng_seed=0)
+    original_kind = game.current.kind
+    original_next = game.next_queue[0]
+    assert game.hold()
+    assert game.held_kind == original_kind
+    assert game.current.kind == original_next
+    assert game.hold_used_this_piece
+
+
+def test_second_hold_swaps() -> None:
+    game = Game(rng_seed=0)
+    first = game.current.kind
+    game.hold()
+    # Drop the current piece so hold_used resets on next spawn.
+    game.hard_drop()
+    game.drain_events()
+    if game.clearing:
+        game.tick(CLEAR_ANIMATION_SECONDS + 0.01)
+
+    # This is the piece that will be swapped out by the next hold.
+    swapped_out = game.current.kind
+    assert game.hold()
+
+    # After the second hold: the piece we just swapped out is now held,
+    # and the piece we held earlier is now active.
+    assert game.held_kind == swapped_out
+    assert game.current.kind == first
+
+
+def test_hold_blocked_until_next_spawn() -> None:
+    game = Game(rng_seed=0)
+    assert game.hold()
+    # Second hold without a new piece is rejected.
+    assert not game.hold()
+
+
+def test_hold_flag_resets_on_spawn() -> None:
+    game = Game(rng_seed=0)
+    game.hold()
+    game.hard_drop()
+    game.drain_events()
+    if game.clearing:
+        game.tick(CLEAR_ANIMATION_SECONDS + 0.01)
+    # A new piece is active; hold should be available again.
+    assert not game.hold_used_this_piece

@@ -45,6 +45,8 @@ class InputHandler:
 
         if game.state != GameState.PLAYING:
             return
+        elif event.key in (pygame.K_c, pygame.K_LSHIFT, pygame.K_RSHIFT):
+            game.hold()
 
         if event.key in (pygame.K_LEFT, pygame.K_a):
             self._left_held = True
