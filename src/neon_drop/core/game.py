@@ -1,4 +1,4 @@
-"""Game state machine: board + bag + current piece + gravity."""
+"""Game state machine: board + bag + piece + gravity + lock delay."""
 
 from __future__ import annotations
 
@@ -18,15 +18,52 @@ class GameState(Enum):
     GAME_OVER = auto()
 
 
-# Seconds between automatic downward steps. Single fixed value for M3;
-# a level-based speed curve lands with the real scoring in M5.
+# Seconds between automatic downward steps. Single fixed value for now;
+# a level-based curve lands with scoring in M5.
 BASE_GRAVITY: float = 0.5
 
-# Score for clearing N rows at once (single/double/triple/tetris).
+# Score for clearing N rows at once.
 _CLEAR_SCORES = {1: 100, 2: 300, 3: 500, 4: 800}
 
-# How many pieces to keep queued up for the preview.
+# How many pieces to keep queued for the preview.
 _NEXT_QUEUE_SIZE = 5
+
+# Lock delay: how long a landed piece waits before locking. Successful
+# moves/rotations reset the timer, up to MAX_LOCK_RESETS times.
+LOCK_DELAY_SECONDS: float = 0.5
+MAX_LOCK_RESETS: int = 15
+
+# Line clear animation duration. The board freezes for this long while
+# full rows flash; then they vanish and the next piece spawns.
+CLEAR_ANIMATION_SECONDS: float = 0.30
+
+
+# --- Events -------------------------------------------------------------
+# The Game emits these each frame via drain_events(). The UI layer reads
+# them to trigger particles, shake, and sound. Core logic stays agnostic
+# of visuals.
+
+
+@dataclass
+class LockEvent:
+    cells: tuple[tuple[int, int], ...]
+    kind: str
+
+
+@dataclass
+class LineClearEvent:
+    rows: tuple[int, ...]
+    count: int
+
+
+@dataclass
+class HardDropEvent:
+    distance: int
+    cells: tuple[tuple[int, int], ...]
+    kind: str
+
+
+GameEvent = LockEvent | LineClearEvent | HardDropEvent
 
 
 @dataclass
@@ -44,8 +81,20 @@ class Game:
     gravity_timer: float = 0.0
     gravity_interval: float = BASE_GRAVITY
 
+    # Lock delay state.
+    lock_timer: float = LOCK_DELAY_SECONDS
+    lock_resets: int = 0
+    lowest_y: int = 0
+
+    # Line clear animation state.
+    clearing: bool = False
+    clearing_rows: tuple[int, ...] = ()
+    clear_timer: float = 0.0
+    _pending_clear_rows: tuple[int, ...] = ()
+
     lines: int = 0
     score: int = 0
+    events: list[GameEvent] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.rng_seed is not None:
@@ -53,7 +102,7 @@ class Game:
         self._refill_queue()
         self._spawn_next()
 
-    # --- setup ----------------------------------------------------------
+    # --- setup -----------------------------------------------------------
 
     def _refill_queue(self) -> None:
         while len(self.next_queue) < _NEXT_QUEUE_SIZE:
@@ -68,11 +117,23 @@ class Game:
             self.state = GameState.GAME_OVER
             return
         self.current = piece
+        self.gravity_timer = 0.0
+        self.lock_timer = LOCK_DELAY_SECONDS
+        self.lock_resets = 0
+        self.lowest_y = piece.y
 
-    # --- movement -------------------------------------------------------
+    # --- movement --------------------------------------------------------
+
+    def _can_act(self) -> bool:
+        return self.state == GameState.PLAYING and not self.clearing and self.current is not None
+
+    def _reset_lock_timer(self) -> None:
+        if self.lock_resets < MAX_LOCK_RESETS:
+            self.lock_timer = LOCK_DELAY_SECONDS
+            self.lock_resets += 1
 
     def _try_move(self, dx: int, dy: int) -> bool:
-        if self.current is None:
+        if not self._can_act():
             return False
         candidate = Piece(
             self.current.kind,
@@ -83,6 +144,14 @@ class Game:
         if not self.board.is_valid(candidate.cells()):
             return False
         self.current = candidate
+        if candidate.y > self.lowest_y:
+            # Reached a new lowest row — reset the lock-reset budget.
+            self.lowest_y = candidate.y
+            self.lock_resets = 0
+            self.lock_timer = LOCK_DELAY_SECONDS
+        else:
+            # Sideways or upward move — counts against the budget.
+            self._reset_lock_timer()
         return True
 
     def move(self, dx: int) -> bool:
@@ -92,49 +161,108 @@ class Game:
         return self._try_move(0, 1)
 
     def rotate(self, direction: int) -> bool:
-        if self.current is None:
+        if not self._can_act():
             return False
         result = rotate(self.current, direction, self.board)
         if result is None:
             return False
         self.current = result
+        self._reset_lock_timer()
         return True
 
     def hard_drop(self) -> int:
-        """Drop the piece to the floor, lock it, spawn the next one."""
-        dropped = 0
+        if not self._can_act():
+            return 0
+        start_y = self.current.y
         while self._try_move(0, 1):
-            dropped += 1
+            pass
+        distance = self.current.y - start_y
+        cells = self.current.cells()
+        kind = self.current.kind
+        self.events.append(HardDropEvent(distance, cells, kind))
+        # Hard drop bypasses lock delay.
         self._lock_piece()
-        return dropped
+        return distance
 
-    # --- locking and clearing ------------------------------------------
+    # --- locking and clearing --------------------------------------------
 
     def _lock_piece(self) -> None:
         if self.current is None:
             return
-        self.board.lock(self.current.cells(), self.current.kind)
-        cleared = self.board.clear_full_rows()
-        if cleared:
-            self.lines += cleared
-            self.score += _CLEAR_SCORES.get(cleared, 0)
-        self._spawn_next()
-        self.gravity_timer = 0.0
+        cells = self.current.cells()
+        kind = self.current.kind
+        self.board.lock(cells, kind)
+        self.events.append(LockEvent(cells, kind))
 
-    # --- per-frame update ----------------------------------------------
+        full = self.board.full_rows()
+        if full:
+            self.clearing = True
+            self.clearing_rows = tuple(full)
+            self.clear_timer = CLEAR_ANIMATION_SECONDS
+            self._pending_clear_rows = tuple(full)
+            self.current = None
+        else:
+            self._spawn_next()
+
+    def _finish_clear(self) -> None:
+        rows = self._pending_clear_rows
+        count = self.board.clear_rows(list(rows))
+        self.events.append(LineClearEvent(rows, count))
+        self.lines += count
+        self.score += _CLEAR_SCORES.get(count, 0)
+        self.clearing = False
+        self.clearing_rows = ()
+        self._pending_clear_rows = ()
+        self._spawn_next()
+
+    # --- per-frame update ------------------------------------------------
 
     def tick(self, dt: float) -> None:
-        """Advance gravity by dt seconds. Handles multi-step drops."""
-        if self.state != GameState.PLAYING or self.current is None:
+        if self.state != GameState.PLAYING:
             return
+
+        if self.clearing:
+            self.clear_timer -= dt
+            if self.clear_timer <= 0:
+                self._finish_clear()
+            return
+
+        if self.current is None:
+            return
+
+        # Gravity: step down every gravity_interval seconds. Slow frames
+        # may need multiple steps.
         self.gravity_timer += dt
         while self.gravity_timer >= self.gravity_interval:
             self.gravity_timer -= self.gravity_interval
             if not self._try_move(0, 1):
-                self._lock_piece()
-                return
+                break
 
-    # --- pause / restart ------------------------------------------------
+        # Lock delay: if the piece cannot move down, count down toward
+        # locking it. Any successful move/rotation reset the timer
+        # (bounded by MAX_LOCK_RESETS).
+        below = Piece(
+            self.current.kind,
+            self.current.rotation,
+            self.current.x,
+            self.current.y + 1,
+        )
+        if not self.board.is_valid(below.cells()):
+            self.lock_timer -= dt
+            if self.lock_timer <= 0:
+                self._lock_piece()
+        else:
+            self.lock_timer = LOCK_DELAY_SECONDS
+
+    # --- event drain -----------------------------------------------------
+
+    def drain_events(self) -> list[GameEvent]:
+        """Return and clear the event queue. UI calls this each frame."""
+        events = self.events
+        self.events = []
+        return events
+
+    # --- pause / restart -------------------------------------------------
 
     def toggle_pause(self) -> None:
         if self.state == GameState.PLAYING:
@@ -143,13 +271,20 @@ class Game:
             self.state = GameState.PLAYING
 
     def reset(self) -> None:
-        """Wipe the board and start a fresh game with the same bag."""
         self.board.reset()
         self.current = None
         self.next_queue = []
         self.gravity_timer = 0.0
+        self.lock_timer = LOCK_DELAY_SECONDS
+        self.lock_resets = 0
+        self.lowest_y = 0
+        self.clearing = False
+        self.clearing_rows = ()
+        self.clear_timer = 0.0
+        self._pending_clear_rows = ()
         self.lines = 0
         self.score = 0
         self.state = GameState.PLAYING
+        self.events = []
         self._refill_queue()
         self._spawn_next()
