@@ -17,76 +17,156 @@ def _dim(screen: pygame.Surface, alpha: int = 180) -> None:
     screen.blit(overlay, (0, 0))
 
 
-def _center_blit(screen: pygame.Surface, surf: pygame.Surface, y: int) -> None:
+def _center_blit(screen: pygame.Surface, surf: pygame.Surface, y: int) -> pygame.Rect:
     w = screen.get_width()
-    screen.blit(surf, (w // 2 - surf.get_width() // 2, y))
+    rect = surf.get_rect(midtop=(w // 2, y))
+    screen.blit(surf, rect)
+    return rect
 
+
+# --------------------------------------------------------------------------
+# Menu
+# --------------------------------------------------------------------------
 
 def draw_menu(screen: pygame.Surface, scores: HighScores, fonts: Fonts) -> None:
-    _dim(screen, 200)
+    w, h = screen.get_size()
+
+    _dim(screen, 160)
 
     title = theme.render_neon(
-        fonts.title, "NEON DROP", theme.ACCENT, glow=theme.ACCENT, glow_alpha=140
+        fonts.title, "NEON DROP", theme.ACCENT, glow=theme.ACCENT, glow_alpha=160
     )
-    _center_blit(screen, title, 100)
+    _center_blit(screen, title, 90)
 
     tagline = theme.render_neon(
         fonts.small,
         "a modern falling-block puzzler",
-        theme.TEXT,
+        theme.TEXT_DIM,
         glow=theme.BORDER,
-        glow_alpha=70,
+        glow_alpha=60,
     )
-    _center_blit(screen, tagline, 190)
+    _center_blit(screen, tagline, 200)
 
-    # Big play prompt.
-    prompt = theme.render_neon(fonts.value, "PRESS ENTER TO PLAY", theme.BORDER, glow=theme.BORDER)
-    _center_blit(screen, prompt, 300)
-
-    # Controls.
-    controls = [
-        "MOVE          ← →  /  A D",
-        "ROTATE        ↑ X  /  Z",
-        "SOFT DROP     ↓",
-        "HARD DROP     SPACE",
-        "HOLD          C  /  SHIFT",
-        "PAUSE         ESC",
-        "MUTE          M",
-    ]
-    y = 420
-    for line in controls:
-        surf = theme.render_neon(fonts.small, line, theme.TEXT, glow=theme.BORDER, glow_alpha=40)
-        _center_blit(screen, surf, y)
-        y += 28
-
-    # High scores.
-    if scores.entries:
-        header = theme.render_neon(fonts.label, "HIGH SCORES", theme.ACCENT, glow=theme.ACCENT)
-        _center_blit(screen, header, 640)
-        y = 675
-        for i, entry in enumerate(scores.entries[:5], start=1):
-            line = f"{i}.  {entry.score:>7}   L{entry.level}"
-            surf = theme.render_neon(
-                fonts.small, line, theme.TEXT, glow=theme.BORDER, glow_alpha=40
-            )
-            _center_blit(screen, surf, y)
-            y += 26
-
-    footer = theme.render_neon(
-        fonts.small, "Q to quit", theme.TEXT, glow=theme.BORDER, glow_alpha=40
+    # Play prompt panel
+    prompt_rect = pygame.Rect(0, 0, 420, 74)
+    prompt_rect.center = (w // 2, 320)
+    theme.panel(screen, prompt_rect, fill=theme.SURFACE_HI, border=theme.BORDER_HI, radius=10)
+    prompt = theme.render_neon(
+        fonts.value, "PRESS ENTER TO PLAY", theme.TEXT, glow=theme.BORDER_HI, glow_alpha=90
     )
-    _center_blit(screen, footer, config.WINDOW_HEIGHT - 40)
+    screen.blit(prompt, prompt.get_rect(center=prompt_rect.center))
 
+    # Two-column lower area: controls | high scores
+    col_y = 440
+    col_gap = 60
+    col_w = 300
+    left_x = w // 2 - col_w - col_gap // 2
+    right_x = w // 2 + col_gap // 2
+
+    _draw_info_column(screen, "CONTROLS", [
+        ("MOVE",       "← →  ·  A D"),
+        ("ROTATE",     "↑ X  ·  Z"),
+        ("SOFT DROP",  "↓"),
+        ("HARD DROP",  "SPACE"),
+        ("HOLD",       "C  ·  SHIFT"),
+        ("PAUSE",      "ESC"),
+        ("MUTE",       "M"),
+    ], left_x, col_y, col_w, fonts)
+
+    _draw_highscores_column(screen, scores, right_x, col_y, col_w, fonts)
+
+    footer = fonts.small.render("Q to quit", True, theme.TEXT_DIM)
+    screen.blit(footer, footer.get_rect(center=(w // 2, h - 30)))
+
+
+def _draw_info_column(
+    screen: pygame.Surface,
+    title: str,
+    rows: list[tuple[str, str]],
+    x: int,
+    y: int,
+    width: int,
+    fonts: Fonts,
+) -> None:
+    # Panel height depends on row count.
+    row_h = 26
+    height = 44 + row_h * len(rows)
+    rect = pygame.Rect(x, y, width, height)
+    theme.panel(screen, rect, fill=theme.SURFACE, border=theme.BORDER, radius=8)
+
+    hdr = fonts.label.render(title, True, theme.TEXT_DIM)
+    screen.blit(hdr, (rect.x + 16, rect.y + 14))
+
+    ry = rect.y + 44
+    for label, keys in rows:
+        l = fonts.small.render(label, True, theme.TEXT_DIM)
+        k = fonts.small.render(keys, True, theme.TEXT)
+        screen.blit(l, (rect.x + 16, ry))
+        screen.blit(k, (rect.right - 16 - k.get_width(), ry))
+        ry += row_h
+
+
+def _draw_highscores_column(
+    screen: pygame.Surface,
+    scores: HighScores,
+    x: int,
+    y: int,
+    width: int,
+    fonts: Fonts,
+) -> None:
+    entries = scores.entries[:5]
+    row_h = 26
+    height = 44 + row_h * max(len(entries), 1)
+    rect = pygame.Rect(x, y, width, height)
+    theme.panel(screen, rect, fill=theme.SURFACE, border=theme.BORDER, radius=8)
+
+    hdr = fonts.label.render("HIGH SCORES", True, theme.TEXT_DIM)
+    screen.blit(hdr, (rect.x + 16, rect.y + 14))
+
+    if not entries:
+        empty = fonts.small.render("— no runs yet —", True, theme.TEXT_DIM)
+        screen.blit(empty, (rect.x + 16, rect.y + 44))
+        return
+
+    ry = rect.y + 44
+    for i, entry in enumerate(entries, start=1):
+        rank = fonts.small.render(f"{i:>2}.", True, theme.TEXT_DIM)
+        score = fonts.value.render(f"{entry.score:>7}", True, theme.TEXT)
+        # scale down the value font for row alignment
+        score = pygame.transform.smoothscale(
+            score, (score.get_width() * 2 // 3, score.get_height() * 2 // 3)
+        )
+        lvl = fonts.small.render(f"L{entry.level}", True, theme.TEXT_DIM)
+        screen.blit(rank,  (rect.x + 16, ry))
+        screen.blit(score, (rect.x + 48, ry - 2))
+        screen.blit(lvl,   (rect.right - 16 - lvl.get_width(), ry))
+        ry += row_h
+
+
+# --------------------------------------------------------------------------
+# Pause
+# --------------------------------------------------------------------------
 
 def draw_pause(screen: pygame.Surface, fonts: Fonts) -> None:
+    w, h = screen.get_size()
     _dim(screen, 170)
-    title = theme.render_neon(fonts.title, "PAUSED", theme.ACCENT, glow=theme.ACCENT)
-    sub = theme.render_neon(
-        fonts.small, "ESC to resume   ·   R to restart", theme.TEXT, glow=theme.BORDER
-    )
-    _center_blit(screen, title, config.WINDOW_HEIGHT // 2 - 80)
-    _center_blit(screen, sub, config.WINDOW_HEIGHT // 2 + 20)
 
+    box = pygame.Rect(0, 0, 420, 200)
+    box.center = (w // 2, h // 2)
+    theme.panel(screen, box, fill=theme.SURFACE_HI, border=theme.BORDER_HI, radius=12)
+
+    title = theme.render_neon(fonts.big, "PAUSED", theme.ACCENT, glow=theme.ACCENT)
+    screen.blit(title, title.get_rect(center=(box.centerx, box.y + 60)))
+
+    sub = fonts.small.render(
+        "ESC  resume     R  restart", True, theme.TEXT_DIM
+    )
+    screen.blit(sub, sub.get_rect(center=(box.centerx, box.y + 130)))
+
+
+# --------------------------------------------------------------------------
+# Game over
+# --------------------------------------------------------------------------
 
 def draw_game_over(
     screen: pygame.Surface,
@@ -96,39 +176,55 @@ def draw_game_over(
     made_high_score: bool,
     fonts: Fonts,
 ) -> None:
+    w, h = screen.get_size()
     _dim(screen, 190)
-    title = theme.render_neon(fonts.title, "GAME OVER", theme.ACCENT, glow=theme.ACCENT)
-    _center_blit(screen, title, 180)
 
-    stats = [
-        f"SCORE   {score}",
-        f"LINES   {lines}",
-        f"LEVEL   {level}",
-    ]
-    y = 320
-    for line in stats:
-        surf = theme.render_neon(fonts.value, line, theme.TEXT, glow=theme.BORDER)
-        _center_blit(screen, surf, y)
-        y += 60
+    box = pygame.Rect(0, 0, 520, 340)
+    box.center = (w // 2, h // 2)
+    theme.panel(screen, box, fill=theme.SURFACE_HI, border=theme.BORDER_HI, radius=12)
+
+    title = theme.render_neon(fonts.big, "GAME OVER", theme.ACCENT, glow=theme.ACCENT)
+    screen.blit(title, title.get_rect(center=(box.centerx, box.y + 60)))
+
+    # Stat grid: 3 columns
+    stats = [("SCORE", f"{score:,}"), ("LINES", str(lines)), ("LEVEL", str(level))]
+    col_w = box.width // 3
+    for i, (label, value) in enumerate(stats):
+        cx = box.x + col_w * i + col_w // 2
+        l = fonts.label.render(label, True, theme.TEXT_DIM)
+        v = fonts.value.render(value, True, theme.TEXT)
+        screen.blit(l, l.get_rect(center=(cx, box.y + 150)))
+        screen.blit(v, v.get_rect(center=(cx, box.y + 190)))
 
     if made_high_score:
-        hs = theme.render_neon(fonts.label, "★ NEW HIGH SCORE ★", theme.ACCENT, glow=theme.ACCENT)
-        _center_blit(screen, hs, 540)
+        hs = theme.render_neon(
+            fonts.small, "★ NEW HIGH SCORE ★", theme.ACCENT, glow=theme.ACCENT
+        )
+        screen.blit(hs, hs.get_rect(center=(box.centerx, box.y + 250)))
 
-    prompt = theme.render_neon(
-        fonts.small,
-        "ENTER to menu   ·   R to play again   ·   Q to quit",
-        theme.BORDER,
-        glow=theme.BORDER,
+    prompt = fonts.small.render(
+        "ENTER  menu     R  play again     Q  quit", True, theme.TEXT_DIM
     )
-    _center_blit(screen, prompt, config.WINDOW_HEIGHT - 120)
+    screen.blit(prompt, prompt.get_rect(center=(box.centerx, box.bottom - 40)))
 
 
-def draw_level_up_flash(screen: pygame.Surface, level: int, progress: float, fonts: Fonts) -> None:
+# --------------------------------------------------------------------------
+# Level-up flash
+# --------------------------------------------------------------------------
+
+def draw_level_up_flash(
+    screen: pygame.Surface, level: int, progress: float, fonts: Fonts
+) -> None:
     """`progress` goes from 1.0 down to 0.0 as the flash fades."""
     if progress <= 0:
         return
-    alpha = int(255 * min(1.0, progress))
-    text = theme.render_neon(fonts.value, f"LEVEL {level}", theme.ACCENT, glow=theme.ACCENT)
+    alpha = int(255 * min(1.0, progress * 1.4))
+    text = theme.render_neon(
+        fonts.big, f"LEVEL {level}", theme.ACCENT, glow=theme.ACCENT
+    )
+    text = text.copy()
     text.set_alpha(alpha)
-    _center_blit(screen, text, config.WINDOW_HEIGHT // 2 - 300)
+
+    cx = config.BOARD_X + (config.COLS * config.CELL_SIZE) // 2
+    cy = config.BOARD_Y + 260
+    screen.blit(text, text.get_rect(center=(cx, cy)))
