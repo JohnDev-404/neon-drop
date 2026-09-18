@@ -8,6 +8,7 @@ canonical form makes them verifiable against any reference online.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Final
 
 from neon_drop.core.board import Board
@@ -49,11 +50,19 @@ def _kick_table(kind: str):
     return _JLSTZ_KICKS
 
 
-def rotate(piece: Piece, direction: int, board: Board) -> Piece | None:
-    """Attempt to rotate `piece`. +1 is clockwise, -1 is counterclockwise.
+@dataclass(frozen=True)
+class RotationResult:
+    """The result of a successful rotation, including which kick was used."""
 
-    Returns a new Piece at the first legal kick offset, or None if every
-    offset is blocked.
+    piece: Piece
+    kick_index: int
+
+
+def attempt_rotation(piece: Piece, direction: int, board: Board) -> RotationResult | None:
+    """Like rotate(), but also returns the index of the kick used.
+
+    The kick index matters for T-spin detection: the last offset in the
+    SRS tables (index 4) promotes a mini T-spin to a full one.
     """
     if direction not in (CW, CCW):
         raise ValueError(f"direction must be {CW} or {CCW}, got {direction}")
@@ -63,11 +72,17 @@ def rotate(piece: Piece, direction: int, board: Board) -> Piece | None:
 
     if table is None:
         # O piece: cells identical across rotations, (0, 0) always fits.
-        return Piece(piece.kind, new_rotation, piece.x, piece.y)
+        return RotationResult(Piece(piece.kind, new_rotation, piece.x, piece.y), 0)
 
-    for dx, dy_up in table[(piece.rotation, new_rotation)]:
+    for idx, (dx, dy_up) in enumerate(table[(piece.rotation, new_rotation)]):
         dy = -dy_up  # convert from doc y-up to our y-down grid
         candidate = Piece(piece.kind, new_rotation, piece.x + dx, piece.y + dy)
         if board.is_valid(candidate.cells()):
-            return candidate
+            return RotationResult(candidate, idx)
     return None
+
+
+def rotate(piece: Piece, direction: int, board: Board) -> Piece | None:
+    """Backwards-compatible wrapper around attempt_rotation."""
+    result = attempt_rotation(piece, direction, board)
+    return result.piece if result else None

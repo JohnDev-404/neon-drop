@@ -12,6 +12,7 @@ from neon_drop.core.game import (
     LockEvent,
 )
 from neon_drop.core.piece import Piece
+from neon_drop.core.scoring import ClearType
 
 
 def _rest_piece(game: Game) -> None:
@@ -191,3 +192,39 @@ def test_reset_clears_state() -> None:
     assert game.state == GameState.PLAYING
     assert game.current is not None
     assert all(c is None for row in game.board.grid for c in row)
+
+
+def test_level_advances_after_ten_lines() -> None:
+    game = Game(rng_seed=0)
+    # Simulate ten single-line clears.
+    game.lines = 9
+    bottom = game.board.rows - 1
+    for x in range(config.COLS):
+        game.board.grid[bottom][x] = "I"
+    game.board.grid[bottom][4] = None
+    game.current = Piece("I", rotation=1, x=2, y=bottom - 3)
+    game.hard_drop()
+    game.tick(CLEAR_ANIMATION_SECONDS + 0.01)
+    assert game.lines == 10
+    assert game.level == 2
+    assert game.gravity_interval < 0.5
+
+
+def test_tspin_requires_last_rotation() -> None:
+    """A T dropped without a final rotation is not a T-spin."""
+    game = Game(rng_seed=0)
+    bottom = game.board.rows - 1
+    # Build a T-spin notch: floor complete except under the T's overhang.
+    for x in range(config.COLS):
+        game.board.grid[bottom][x] = "I"
+    game.board.grid[bottom][4] = None
+    game.board.grid[bottom - 1][3] = "I"
+    game.board.grid[bottom - 1][5] = "I"
+
+    # Force a T and drop it in place without rotating.
+    game.current = Piece("T", rotation=0, x=3, y=bottom - 2)
+    game.last_action_was_rotation = False
+    game.hard_drop()
+    # No T-spin detected — last action was a hard drop, not a rotation.
+    assert game.last_clear is not None
+    assert game.last_clear.clear_type in (ClearType.SINGLE, ClearType.NONE)
